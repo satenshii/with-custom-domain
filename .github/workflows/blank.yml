@@ -1,4 +1,4 @@
-name: Auto Pages Subdomain
+name: Auto Pages Domain + HTTPS
 
 on:
   push:
@@ -6,34 +6,68 @@ on:
   workflow_dispatch:
 
 jobs:
-  set-domain:
+  pages-domain:
     runs-on: ubuntu-latest
     steps:
-      - name: Set Pages domain if enabled
+      - name: Configure Pages domain and HTTPS
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
+            const domain = `${repo}.saten.dev`;
 
+            // 1. Check if Pages is enabled
+            let pages;
             try {
-              // Check if Pages is enabled
-              await github.request(
+              pages = await github.request(
+                "GET /repos/{owner}/{repo}/pages",
+                { owner, repo }
+              );
+            } catch {
+              console.log("Pages not enabled — skipping");
+              return;
+            }
+
+            // 2. Set custom domain
+            await github.request(
+              "PUT /repos/{owner}/{repo}/pages",
+              {
+                owner,
+                repo,
+                cname: domain
+              }
+            );
+            console.log(`✔ Domain set: ${domain}`);
+
+            // 3. Wait for certificate issuance
+            console.log("⏳ Waiting for TLS certificate...");
+            for (let i = 0; i < 20; i++) {
+              const status = await github.request(
                 "GET /repos/{owner}/{repo}/pages",
                 { owner, repo }
               );
 
-              const domain = `${repo}.saten.dev`;
+              if (status.data?.https_certificate?.state === "issued") {
+                console.log("🔒 Certificate issued!");
+                break;
+              }
 
-              await github.request(
-                "PUT /repos/{owner}/{repo}/pages",
-                {
-                  owner,
-                  repo,
-                  cname: domain
-                }
-              );
+              if (i === 19) {
+                console.log("⚠ Cert not ready yet — will retry on next run");
+                return;
+              }
 
-              console.log(`✔ Set domain: ${domain}`);
-            } catch (e) {
-              console.log("Pages not enabled — skipping");
+              await new Promise(r => setTimeout(r, 15000)); // 15s
             }
+
+            // 4. Enforce HTTPS
+            await github.request(
+              "PUT /repos/{owner}/{repo}/pages",
+              {
+                owner,
+                repo,
+                https_enforced: true
+              }
+            );
+
+            console.log("✅ HTTPS enforced");
