@@ -1,0 +1,39 @@
+name: Auto Pages Subdomain
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  set-domain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set Pages domain if enabled
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            try {
+              // Check if Pages is enabled
+              await github.request(
+                "GET /repos/{owner}/{repo}/pages",
+                { owner, repo }
+              );
+
+              const domain = `${repo}.saten.dev`;
+
+              await github.request(
+                "PUT /repos/{owner}/{repo}/pages",
+                {
+                  owner,
+                  repo,
+                  cname: domain
+                }
+              );
+
+              console.log(`✔ Set domain: ${domain}`);
+            } catch (e) {
+              console.log("Pages not enabled — skipping");
+            }
